@@ -20,7 +20,7 @@ class DataPreperator():
         self.embedding_paths = {}
         self.embedding_dims = [16, 32, 64, 128, 256, 512, 1024, 2048]
         self.graph_name = graph_name
-        self.output_prefix = '/tmp/path-length-approximation-deep-learning/outputs/{}/'.format(self.graph_name)
+        self.output_prefix = '/run/path-length-approximation-deep-learning/outputs/{}/'.format(self.graph_name)
         self.distance_map_path = self.output_prefix + 'distance_map.pickle'
         self.embedding_path_prefix = self.output_prefix + "emb/"
         self.edgelist_path = '../data/{}.edgelist'.format(self.graph_name)
@@ -149,11 +149,13 @@ class DataPreperator():
             print('x/y size after dropping duplicates:', len(x), len(y))
             uniques, idx = np.unique(x, axis=0, return_index=True)
             assert len(uniques) == len(x)
+            """ This would drop distances of 8
             prev_len = x.shape[0]
             mask = y!=8
             x = x[mask]
             y = y[mask]
             print('{} rows deleted'.format(prev_len-x.shape[0]))
+            """
 
             self.save_splits(x, y, emb_dim)
 

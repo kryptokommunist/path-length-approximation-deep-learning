@@ -8,7 +8,6 @@ import pickle
 import numpy as np
 from utils import *
 
-import json
 import torch
 from torchsummary import summary
 from torch.utils import data as torch_data
@@ -21,7 +20,7 @@ class Trainer():
 
     def __init__(self, graph_name, emb_dim, split, train_path, val_path, test_path):
         print("Split: {}".format(split))
-        self.path = "/tmp/output/{}/{}/{}/".format(graph_name, emb_dim, split)
+        self.path = "/run/output/{}/{}/{}/".format(graph_name, emb_dim, split)
         self.split = split
         self.scores = {}
         self.load_data(train_path, val_path, test_path)
@@ -48,6 +47,7 @@ class Trainer():
         self.x_test, self.y_test = pickle.load(open(test_path, 'rb'))
         print('shapes of train, validation, test data', self.x_train.shape, self.y_train.shape, self.x_cv.shape, self.y_cv.shape, self.x_test.shape, self.y_test.shape)
         values, counts = np.unique(self.y_train, return_counts=True)
+        self.max_dist = max(values)
         self.num_features = self.x_train.shape[1]
         print('Frequency of distance values before sampling', values, counts)
         np.random.seed(999)
@@ -66,7 +66,7 @@ class Trainer():
         print("Baseline: Accuracy={}%, MSE={}, MAE={}".format(round(baseline_acc, 2), round(baseline_mse,2), round(baseline_mae,2)))
 
     def train_nn(self):
-        params = {'batch_size': 1000, 'input_size': self.num_features, 'hidden_units_1': 200, 'hidden_units_2': 100, 'hidden_units_3': 50, 'do_1': 0.2, 'do_2': 0.1, 'do_3': 0.05, 'output_size': 1, 'lr': 0.001, 'min_lr': 1e-5, 'max_lr': 1e-3, 'epochs': 50, 'lr_sched': 'clr', 'lr_sched_mode': 'triangular', 'gamma': 0.95}
+        params = {'batch_size': 1000, 'input_size': self.num_features, 'hidden_units_1': 200, 'hidden_units_2': 100, 'hidden_units_3': 50, 'do_1': 0.2, 'do_2': 0.1, 'do_3': 0.05, 'output_size': 1, 'lr': 0.001, 'min_lr': 1e-5, 'max_lr': 1e-3, 'epochs': 250, 'lr_sched': 'clr', 'lr_sched_mode': 'triangular', 'gamma': 0.95}
         device = "cuda" #torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         print("device:", device)
 
@@ -391,8 +391,6 @@ class Trainer():
         except:
             pass
 
-        from sklearn.metrics import accuracy_score
-
         acc_score = accuracy_score(self.y_test[:len(y_hat)], np.round(y_hat))
 
         writer.add_text('Accuracy=', str(acc_score))
@@ -403,7 +401,7 @@ class Trainer():
         print(len(self.y_test), len(y_hat))
         dist_accuracies = []
         dist_counts = []
-        for i in range(18):
+        for i in range(self.max_dist + 1):
             mask = self.y_test_==i
             dist_values = self.y_test_[mask]
             dist_preds = np.round(y_hat_[mask])
@@ -443,8 +441,4 @@ class Trainer():
         writer.add_text('MAE', str(mae))
         print('MAE', np.mean(np.abs(np.array(y_hat).squeeze() - self.y_test[:len(y_hat)])))
 
-        self.scores["nn"] = {"acc": acc_score, "mse": mse, "mae": mae}
-        score_path = os.path.join(self.path, "scores.txt")
-        self.ensure_folders_exist(score_path)
-        with open(score_path, 'w') as file:
-         file.write(json.dumps(self.scores)) # use `json.loads` to do the reverse
+        self.scores["nn"] = {"acc": acc_score, "mse": mse, "mae": mae, "lr_arr": lr_arr[:len(lrs)], "lr_losses": losses, "train_losses": train_losses, "val_losses": val_losses, "dist_accuracies": dist_accuracies, "dist_counts": dist_counts}
