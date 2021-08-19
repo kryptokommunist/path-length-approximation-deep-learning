@@ -73,6 +73,7 @@ class DataPreperator():
             if os.path.isfile(arg[1]) and not overwrite_embeddings:
                 print("Embedding already saved to disk: {}".format(arg[1]))
                 continue
+            self.ensure_folders_exist(arg[1])
             if not os.path.isfile(arg[0]):
                 print("Edgelist missing: {}".format(arg[0]))
                 continue
