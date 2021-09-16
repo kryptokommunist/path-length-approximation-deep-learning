@@ -18,7 +18,7 @@ class DataPreperator():
         """
         self.emb_dim_to_data_paths = {}
         self.embedding_paths = {}
-        self.embedding_dims = [16, 32, 64, 128, 256, 512, 1024, 2048]
+        self.embedding_dims = [16, 32, 64, 128]#, 256, 512, 1024, 2048]
         self.graph_name = graph_name
         self.output_prefix = '/run/path-length-approximation-deep-learning/outputs/{}/'.format(self.graph_name)
         self.distance_map_path = self.output_prefix + 'distance_map.pickle'
@@ -150,13 +150,21 @@ class DataPreperator():
             print('x/y size after dropping duplicates:', len(x), len(y))
             uniques, idx = np.unique(x, axis=0, return_index=True)
             assert len(uniques) == len(x)
-            """ This would drop distances of 8
-            prev_len = x.shape[0]
-            mask = y!=8
-            x = x[mask]
-            y = y[mask]
-            print('{} rows deleted'.format(prev_len-x.shape[0]))
-            """
+            
+            uniques, idx, counts = np.unique(y, axis=0, return_index=True, return_counts=True)
+            print("Length uniques and counts")
+            print(len(uniques), y.shape[0], 'duplicates=', y.shape[0]-len(uniques))
+            
+            lengths_below_thresh = [l for l in uniques if counts[l-1] < 10]
+            print("Lengths below threshhold: {}".format(lengths_below_thresh))
+            print("Dropping lengths below threshhold from dataset")
+            
+            for length in lengths_below_thresh:
+                prev_len = x.shape[0]
+                mask = y!=length
+                x = x[mask]
+                y = y[mask]
+                print('Dropping length {}. {} rows deleted'.format(length, prev_len-x.shape[0]))
 
             self.save_splits(x, y, emb_dim)
 

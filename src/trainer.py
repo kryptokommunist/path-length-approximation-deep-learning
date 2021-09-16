@@ -14,12 +14,13 @@ from torch.utils import data as torch_data
 from tqdm.auto import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error
+from sklearn.metrics import accuracy_score, mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 
 class Trainer():
 
-    def __init__(self, graph_name, emb_dim, split, train_path, val_path, test_path):
+    def __init__(self, graph_name, emb_dim, split, train_path, val_path, test_path, params):
         print("Split: {}".format(split))
+        self.params = params
         self.path = "/run/output/{}/{}/{}/".format(graph_name, emb_dim, split)
         self.split = split
         self.scores = {}
@@ -60,13 +61,15 @@ class Trainer():
         baseline_acc = accuracy_score(self.y_test, y_class)*100
         baseline_mse = mean_squared_error(self.y_test, y_pred)
         baseline_mae = mean_absolute_error(self.y_test, y_pred)
+        baseline_mre = mean_absolute_percentage_error(self.y_test, y_pred)
 
-        self.scores["baseline"] = {"acc": baseline_acc, "mse": baseline_mse, "mae": baseline_mae}
+        self.scores["baseline"] = {"acc": baseline_acc, "mse": baseline_mse, "mae": baseline_mae, "mre": baseline_mre}
 
         print("Baseline: Accuracy={}%, MSE={}, MAE={}".format(round(baseline_acc, 2), round(baseline_mse,2), round(baseline_mae,2)))
 
     def train_nn(self):
-        params = {'batch_size': 1000, 'input_size': self.num_features, 'hidden_units_1': 200, 'hidden_units_2': 100, 'hidden_units_3': 50, 'do_1': 0.2, 'do_2': 0.1, 'do_3': 0.05, 'output_size': 1, 'lr': 0.001, 'min_lr': 1e-5, 'max_lr': 1e-3, 'epochs': 250, 'lr_sched': 'clr', 'lr_sched_mode': 'triangular', 'gamma': 0.95}
+        params = self.params
+        params['input_size'] = self.num_features
         device = "cuda" #torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         print("device:", device)
 
@@ -334,7 +337,6 @@ class Trainer():
                 break
                
             """
-
             if epoch % 10 == 0:
                 torch.save(best_model.state_dict(), os.path.join(checkpoint_path, 'model_cp.pt'))
                 torch.save(optimizer.state_dict(), checkpoint_path+'/optim_cp.pt')
@@ -400,14 +402,32 @@ class Trainer():
         self.y_test_ = self.y_test[:len(y_hat)]
         print(len(self.y_test), len(y_hat))
         dist_accuracies = []
+        dist_mae = []
+        dist_mre = []
+        dist_mse = []
         dist_counts = []
         for i in range(self.max_dist + 1):
             mask = self.y_test_==i
             dist_values = self.y_test_[mask]
             dist_preds = np.round(y_hat_[mask])
+            if len(dist_values) != len(dist_preds):
+                print("ERROR: len(dist_values) != len(dist_preds) => {} != {}".format(len(dist_values), len(dist_preds)))
+            elif len(dist_values) < 1 and i != 0:
+                dist_accuracies.append(np.nan)
+                dist_mae.append(np.nan)
+                dist_mse.append(np.nan)
+                dist_mre.append(np.nan)
+                dist_counts.append(len(dist_values))
+                continue
+            elif len(dist_values) < 1 and i == 0:
+                continue
             dist_accuracies.append(np.sum(dist_values == dist_preds)*100/len(dist_values))
+            dist_mae.append(mean_absolute_error(dist_values, dist_preds))
+            dist_mse.append(mean_squared_error(dist_values, dist_preds))
+            dist_mre.append(mean_absolute_percentage_error(dist_values, dist_preds))
             dist_counts.append(len(dist_values))
 
+        """
         fig = plt.figure(figsize=(10,7))
         plt.subplot(2,1,1)
         plt.bar(range(18), dist_accuracies)
@@ -428,17 +448,24 @@ class Trainer():
         self.ensure_folders_exist(im_path)
         fig.savefig(im_path)
         writer.add_figure('test/results', fig)
+        """
+        
         writer.add_text('class avg accuracy', str(np.mean(dist_accuracies)))
         print('class avg accuracy', np.mean(dist_accuracies))
 
-        mse = np.mean((np.array(y_hat).squeeze()-self.y_test[:len(y_hat)])**2)
+        mse = mean_squared_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
 
         writer.add_text('MSE', str(mse))
-        print('MSE', np.mean((np.array(y_hat).squeeze()-self.y_test[:len(y_hat)])**2))
+        print('MSE', mse)
 
-        mae = np.mean(np.abs(np.array(y_hat).squeeze() - self.y_test[:len(y_hat)]))
+        mae = mean_absolute_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
 
         writer.add_text('MAE', str(mae))
-        print('MAE', np.mean(np.abs(np.array(y_hat).squeeze() - self.y_test[:len(y_hat)])))
+        print('MAE', mae)
+        
+        mre = mean_absolute_percentage_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
 
-        self.scores["nn"] = {"acc": acc_score, "mse": mse, "mae": mae, "lr_arr": lr_arr[:len(lrs)], "lr_losses": losses, "train_losses": train_losses, "val_losses": val_losses, "dist_accuracies": dist_accuracies, "dist_counts": dist_counts}
+        writer.add_text('MRE', str(mre))
+        print('MRE', mre)
+
+        self.scores["nn"] = {"acc": acc_score, "mse": mse, "mae": mae, "mre": mre, "lr_arr": lr_arr[:len(lrs)], "lr_losses": losses, "train_losses": train_losses, "val_losses": val_losses, "dist_accuracies": dist_accuracies, "dist_mae": dist_mae, "dist_mre": dist_mre, "dist_mse": dist_mse, "dist_counts": dist_counts}
