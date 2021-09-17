@@ -12,13 +12,13 @@ from sklearn.preprocessing import StandardScaler
 
 class DataPreperator():
     
-    def __init__(self, graph_name):
+    def __init__(self, graph_name, emb_dims):
         """
         graph_name should correspond to an ../data/{graph_name}.edgelist file
         """
         self.emb_dim_to_data_paths = {}
         self.embedding_paths = {}
-        self.embedding_dims = [16, 32, 64, 128]#, 256, 512, 1024, 2048]
+        self.embedding_dims = emb_dims
         self.graph_name = graph_name
         self.output_prefix = '/run/path-length-approximation-deep-learning/outputs/{}/'.format(self.graph_name)
         self.distance_map_path = self.output_prefix + 'distance_map.pickle'
@@ -113,7 +113,7 @@ class DataPreperator():
 
         self.distance_map = distance_map
         with self.safe_open(self.distance_map_path, 'wb') as handle:
-            pickle.dump(distance_map, handle)
+            pickle.dump(distance_map, handle, protocol=4)
         print('distance_map saved at', self.distance_map_path)
         print('size of distance_map:', sys.getsizeof(distance_map)/1024/1024,'MB')
         
@@ -228,13 +228,13 @@ class DataPreperator():
         x_test = scaler.transform(x_test)
 
 
-        pickle.dump((x_train, y_train), self.safe_open(train_path, 'wb'))
+        pickle.dump((x_train, y_train), self.safe_open(train_path, 'wb'), protocol=4)
         print("Saved to:\n{}".format(train_path))
         if create_validation:
-            pickle.dump((x_cv, y_cv), self.safe_open(val_path, 'wb'))
+            pickle.dump((x_cv, y_cv), self.safe_open(val_path, 'wb'), protocol=4)
             print("Saved to:\n{}".format(val_path))
         if test_size != 1.0:
-            pickle.dump((x_test, y_test), self.safe_open(test_path, 'wb'))
+            pickle.dump((x_test, y_test), self.safe_open(test_path, 'wb'), protocol=4)
             print("Saved to:\n{}".format(test_path))
 
     def data_file_path(self, usecase, emb_dim, split):

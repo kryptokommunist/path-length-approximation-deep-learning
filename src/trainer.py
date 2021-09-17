@@ -18,9 +18,10 @@ from sklearn.metrics import accuracy_score, mean_absolute_error, mean_absolute_p
 
 class Trainer():
 
-    def __init__(self, graph_name, emb_dim, split, train_path, val_path, test_path, params):
-        print("Split: {}".format(split))
+    def __init__(self, graph_name, emb_dim, split, train_path, val_path, test_path, params, dump_scores_callback):
+        print("Training: graph: {}, emb_dim: {}, split: {}, train_path: {}".format(graph_name, emb_dim, split, train_path))
         self.params = params
+        self.dump_scores = dump_scores_callback
         self.path = "/run/output/{}/{}/{}/".format(graph_name, emb_dim, split)
         self.split = split
         self.scores = {}
@@ -71,7 +72,7 @@ class Trainer():
         params = self.params
         params['input_size'] = self.num_features
         device = "cuda" #torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-        print("device:", device)
+        print("Starting NN training on device:", device)
 
         trainset = torch_data.TensorDataset(torch.as_tensor(self.x_train, dtype=torch.float, device=device), torch.as_tensor(self.y_train, dtype=torch.float, device=device))
         train_dl = torch_data.DataLoader(trainset, batch_size=params['batch_size'], drop_last=True)
@@ -285,6 +286,8 @@ class Trainer():
         # with torch.autograd.detect_anomaly():  # use this to detect bugs while training
         for param_group in optimizer.param_groups:
             print('lr-check', param_group['lr'])
+            
+        epoch_wise_scores = []
         for epoch in range(start_epoch, start_epoch+params['epochs']):  # loop over the dataset multiple times
             running_loss = 0.0
             stime = time.time()
@@ -329,6 +332,9 @@ class Trainer():
             val_losses.append(val_loss)
             writer.add_scalar('loss/train', train_loss, epoch)
             writer.add_scalar('loss/val', val_loss, epoch)
+            
+            epoch_wise_scores.append(self.get_test_scores(model, False, test_dl, loss_fn, writer, lrs))
+                        
             for param_group in optimizer.param_groups:
                 curr_lr = param_group['lr']
             writer.add_scalar('monitor/lr-epoch', curr_lr, epoch)
@@ -366,7 +372,30 @@ class Trainer():
         torch.save(best_model.state_dict(), best_model_path)
         torch.save(optimizer.state_dict(), opt_save_path)
         torch.save(lr_sched.state_dict(), sched_save_path)
+        
+        self.scores["nn"] = self.get_test_scores(model, best_model_path, test_dl, loss_fn, writer, lrs)
+        self.scores["nn"]["lr_losses"] = losses
+        self.scores["nn"]["train_losses"] = train_losses
+        self.scores["nn"]["val_losses"] = val_losses
+        self.scores["nn"]["epoch_wise_scores"] = epoch_wise_scores
 
+                
+        writer.add_text('class avg accuracy', str(np.mean(self.scores["nn"]["dist_accuracies"])))
+        print('class avg accuracy', np.mean(self.scores["nn"]["dist_accuracies"]))
+        mse = str(self.scores["nn"]["mse"])
+        mae = str(self.scores["nn"]["mae"])
+        mre = str(self.scores["nn"]["mre"])
+        writer.add_text('MSE', mse)
+        print('MSE', mse)
+        writer.add_text('MAE', mae)
+        print('MAE', mae)
+        writer.add_text('MRE', mre)
+        print('MRE', mre)   
+        
+        self.dump_scores(self.scores)
+        
+    def get_test_scores(self, model, best_model_path, test_dl, loss_fn, writer, lrs):
+        print("Saving test scores")
         def test(model, dl):
             model.eval()
             final_loss = 0.0
@@ -382,7 +411,8 @@ class Trainer():
                     final_loss += loss.item()
             return final_loss/len(dl), y_hat
 
-        model.load_state_dict(torch.load(best_model_path))
+        if best_model_path:
+            model.load_state_dict(torch.load(best_model_path))
         test_loss, y_hat = test(model, test_dl)
         print(test_loss)
         writer.add_text('test-loss', str(test_loss))
@@ -450,22 +480,10 @@ class Trainer():
         writer.add_figure('test/results', fig)
         """
         
-        writer.add_text('class avg accuracy', str(np.mean(dist_accuracies)))
-        print('class avg accuracy', np.mean(dist_accuracies))
-
         mse = mean_squared_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
-
-        writer.add_text('MSE', str(mse))
-        print('MSE', mse)
-
         mae = mean_absolute_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
-
-        writer.add_text('MAE', str(mae))
-        print('MAE', mae)
-        
         mre = mean_absolute_percentage_error(np.array(y_hat).squeeze(), self.y_test[:len(y_hat)])
-
-        writer.add_text('MRE', str(mre))
-        print('MRE', mre)
-
-        self.scores["nn"] = {"acc": acc_score, "mse": mse, "mae": mae, "mre": mre, "lr_arr": lr_arr[:len(lrs)], "lr_losses": losses, "train_losses": train_losses, "val_losses": val_losses, "dist_accuracies": dist_accuracies, "dist_mae": dist_mae, "dist_mre": dist_mre, "dist_mse": dist_mse, "dist_counts": dist_counts}
+        
+        return {"acc": acc_score, "mse": mse, "mae": mae, "mre": mre, "lr_arr": lr_arr[:len(lrs)],
+                "dist_accuracies": dist_accuracies, "dist_mae": dist_mae, "dist_mre": dist_mre,
+                "dist_mse": dist_mse, "dist_counts": dist_counts}
